@@ -1,0 +1,65 @@
+{
+  "name": "power-platform-mcp",
+  "version": "1.0.4",
+  "description": "MCP (Model Context Protocol) server that bridges Claude with the Microsoft Power Platform CLI (pac and pacx). 101 typed tools covering auth, environments, solutions, canvas apps, Power Pages, PCF, plugins, connections, connectors, applications, model builder, telemetry, plus PACX table/column/workflow operations and a generic passthrough escape hatch.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Emin Mujabašić",
+  "homepage": "https://github.com/Emin-bit/power-platform-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Emin-bit/power-platform-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Emin-bit/power-platform-mcp/issues"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-desktop",
+    "anthropic",
+    "power-platform",
+    "powerplatform",
+    "dataverse",
+    "dynamics-365",
+    "power-apps",
+    "power-pages",
+    "power-automate",
+    "pac",
+    "pacx",
+    "pac-cli",
+    "microsoft",
+    "low-code"
+  ],
+  "bin": {
+    "power-platform-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "start": "node dist/index.js",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node smoke-test.mjs",
+    "prepublishOnly": "npm run clean && npm run test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3"
+  }
+}

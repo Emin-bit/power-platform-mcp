@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "power-platform": {
+      "command": "node",
+      "args": ["/Users/eminmujabasic/Desktop/MCP za PowerPlatform/dist/index.js"],
+      "env": {
+        "PAC_MCP_SAFE_MODE": "on",
+        "PAC_MCP_VERBOSE": "0",
+        "MCP_TIMEOUT": "600000"
+      }
+    }
+  }
+}
