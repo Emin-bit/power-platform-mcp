@@ -1,4 +1,4 @@
-// Shared setup logic — used both by the CLI subcommand (`npx power-platform-mcp setup`)
+// Shared setup logic — used both by the CLI subcommand (`npx @emin-bit/power-platform-mcp setup`)
 // and by the MCP tools (preflight, setup_install_pac_tools).
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
@@ -329,7 +329,7 @@ export async function runSetupCli(): Promise<void> {
   if (!prereqs.ok) {
     out("✗ Mandatory prerequisites are not satisfied. Cannot proceed.\n");
     for (const reason of prereqs.blockers) out("  • " + reason);
-    out("\nFix the items above, then re-run: npx power-platform-mcp setup\n");
+    out("\nFix the items above, then re-run: npx @emin-bit/power-platform-mcp setup\n");
     process.exit(1);
   }
   out("✓ Mandatory prerequisites OK.\n");
@@ -384,7 +384,7 @@ export async function runSetupCli(): Promise<void> {
     mcpServers: {
       "power-platform": {
         command: "npx",
-        args: ["-y", "power-platform-mcp"],
+        args: ["-y", "@emin-bit/power-platform-mcp"],
         env: {
           PAC_MCP_SAFE_MODE: "on",
           MCP_TIMEOUT: "600000",

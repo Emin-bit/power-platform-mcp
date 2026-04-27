@@ -2,6 +2,23 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.0.5] — 2026-04-27 (Renamed to scoped npm package)
+
+### Changed (BREAKING for npm install path only)
+- **Package name**: `power-platform-mcp` → `@emin-bit/power-platform-mcp`. Reason: npm registry rejected the unscoped name as "too similar to existing package powerplatform-mcp" (one word vs hyphenated). Scoped names under your npm username are always available and are the standard solution for this conflict.
+- **Install command** for end users:
+  ```json
+  "args": ["-y", "@emin-bit/power-platform-mcp"]
+  ```
+  (was `["-y", "power-platform-mcp"]`)
+- **CLI setup**: `npx @emin-bit/power-platform-mcp setup` (was `npx power-platform-mcp setup`)
+- The CLI binary name (`power-platform-mcp` from the `bin` field) and the MCP server name (`power-platform-mcp` in the `McpServer` constructor) are unchanged — only the npm distribution name moved to the `@emin-bit` scope.
+
+### Notes
+- v1.0.4 was tagged in git but never published to npm (publish was rejected by registry).
+- All references in README, PUBLISHING.md, examples/claude_desktop_config.json, and tool descriptions updated to the scoped name.
+- Logs, env vars (`PAC_MCP_*`), and the user-facing log dir (`~/.power-platform-mcp/logs/`) keep their existing names — no behavior change for existing local installs.
+
 ## [1.0.4] — 2026-04-27 (Onboarding & auto-install of pac/pacx)
 
 ### Added

@@ -15,7 +15,7 @@ Lokalni MCP (Model Context Protocol) server koji povezuje Claude (Claude Desktop
 **Najbrže**: pokreni interaktivni setup wizard. Provjerava obavezne preduslove (Node 18+ i .NET SDK), pa **auto-instalira pac i pacx** preko `dotnet tool install --global` (skipuje ako su već prisutni). Bezbjedno za ponovno pokretanje.
 
 ```bash
-npx -y power-platform-mcp setup
+npx -y @emin-bit/power-platform-mcp setup
 ```
 
 Setup ima 4 jasne faze:
@@ -73,7 +73,7 @@ pac auth create --deviceCode --name myorg
   "mcpServers": {
     "power-platform": {
       "command": "npx",
-      "args": ["-y", "power-platform-mcp"],
+      "args": ["-y", "@emin-bit/power-platform-mcp"],
       "env": {
         "PAC_MCP_SAFE_MODE": "on",
         "MCP_TIMEOUT": "600000"

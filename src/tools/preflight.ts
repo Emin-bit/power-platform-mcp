@@ -14,7 +14,7 @@ export function registerPreflight(server: McpServer) {
     async () => {
       log("info", "preflight");
       const r = await runPreflight();
-      const text = `Power Platform MCP — preflight check\n\n${r.summary}\n\nOverall: ${r.allOk ? "✅ all systems go" : "⚠️ items need attention"}\n\nNext steps:\n  • If pac/pacx missing → call setup_install_pac_tools (with confirm:true) or run \`npx power-platform-mcp setup\` in terminal\n  • If .NET SDK missing → install from https://dotnet.microsoft.com/download (cannot be auto-installed)\n  • If PAC auth missing → call auth_create_device_code or auth_create_interactive\n  • If PACX auth missing → call pacx_auth_create`;
+      const text = `Power Platform MCP — preflight check\n\n${r.summary}\n\nOverall: ${r.allOk ? "✅ all systems go" : "⚠️ items need attention"}\n\nNext steps:\n  • If pac/pacx missing → call setup_install_pac_tools (with confirm:true) or run \`npx @emin-bit/power-platform-mcp setup\` in terminal\n  • If .NET SDK missing → install from https://dotnet.microsoft.com/download (cannot be auto-installed)\n  • If PAC auth missing → call auth_create_device_code or auth_create_interactive\n  • If PACX auth missing → call pacx_auth_create`;
       return {
         isError: !r.allOk,
         content: [{ type: "text", text }],

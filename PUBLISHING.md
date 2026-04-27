@@ -21,16 +21,20 @@ Verify: `npm whoami` should print your username.
 ### 2. Verify the package name is available
 
 ```bash
-npm view power-platform-mcp 2>&1 | head -5
+npm view @emin-bit/power-platform-mcp 2>&1 | head -5
 ```
 
-If you see `npm error 404`, the name is free. If you see metadata, someone else owns it — pick another name (e.g., `@yourorg/power-platform-mcp` for a scoped package, which is always available under your scope).
+If you see `npm error 404`, the name is free. If you see metadata or `403 Package name too similar`, the name is taken — switch to a scoped package (e.g., `@yourname/power-platform-mcp`) which is always available under your npm username scope.
 
-If you switch to a scoped name, edit `package.json`:
+This package is currently published as `@emin-bit/power-platform-mcp`. To fork under your own scope, edit `package.json`:
 ```json
-"name": "@yourorg/power-platform-mcp",
+"name": "@yourname/power-platform-mcp",
 ```
-And the GitHub URLs accordingly.
+And the GitHub URLs accordingly. First publish of a scoped package needs `--access=public` (npm defaults scoped to private):
+```bash
+npm publish --access=public
+```
+Subsequent publishes don't need the flag.
 
 ### 3. GitHub repo
 
@@ -90,7 +94,7 @@ npm version prerelease --preid=beta
 npm publish --tag beta
 
 # End users opt in by adding @beta:
-# "args": ["-y", "power-platform-mcp@beta"]
+# "args": ["-y", "@emin-bit/power-platform-mcp@beta"]
 ```
 
 The default `latest` tag stays on the last stable release.
@@ -101,11 +105,11 @@ The default `latest` tag stays on the last stable release.
 
 ```bash
 # 1. View the published package
-npm view power-platform-mcp
+npm view @emin-bit/power-platform-mcp
 
 # 2. Test install on a clean directory
 mkdir -p /tmp/test-install && cd /tmp/test-install
-npx -y power-platform-mcp <<EOF
+npx -y @emin-bit/power-platform-mcp <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}
 EOF
 # Should print initialize response with server instructions
@@ -118,9 +122,9 @@ EOF
 
 ## Updating end users
 
-End users running with `npx -y power-platform-mcp` automatically get the latest version on next Claude Desktop start (npx fetches if cache is stale). No action required from them.
+End users running with `npx -y @emin-bit/power-platform-mcp` automatically get the latest version on next Claude Desktop start (npx fetches if cache is stale). No action required from them.
 
-End users who pinned a specific version (`power-platform-mcp@1.0.3`) need to update their config manually.
+End users who pinned a specific version (`@emin-bit/power-platform-mcp@1.0.5`) need to update their config manually.
 
 ---
 

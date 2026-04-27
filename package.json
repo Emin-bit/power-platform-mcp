@@ -1,6 +1,6 @@
 {
-  "name": "power-platform-mcp",
-  "version": "1.0.4",
+  "name": "@emin-bit/power-platform-mcp",
+  "version": "1.0.5",
   "description": "MCP (Model Context Protocol) server that bridges Claude with the Microsoft Power Platform CLI (pac and pacx). 101 typed tools covering auth, environments, solutions, canvas apps, Power Pages, PCF, plugins, connections, connectors, applications, model builder, telemetry, plus PACX table/column/workflow operations and a generic passthrough escape hatch.",
   "type": "module",
   "license": "MIT",

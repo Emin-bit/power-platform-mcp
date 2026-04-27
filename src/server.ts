@@ -28,7 +28,7 @@ import { safeModeEnabled } from "./safety.js";
 import { getEffectivePath } from "./pac.js";
 import { killAllRunning } from "./jobs.js";
 
-export const VERSION = "1.0.4";
+export const VERSION = "1.0.5";
 
 const SERVER_INSTRUCTIONS = `
 Power Platform MCP server. This server bridges TWO complementary CLIs:
