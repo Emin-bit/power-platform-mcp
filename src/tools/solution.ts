@@ -217,7 +217,8 @@ export function registerSolution(server: McpServer) {
   server.tool(
     "solution_export",
     "Export a solution from the active (or specified) environment to a local .zip file. Long-running for large solutions. Does NOT modify the environment. " +
-    "Default: blocks until done. Set background=true for fire-and-forget — returns a job id; track with job_status/job_wait.",
+    "Phase E (1.2.0): `background` now DEFAULTS TO TRUE when `async_mode:true` (the default), because historic data shows solution_export p95 = 77s — past Claude Desktop's 60s MCP transport timeout. " +
+    "Set background:false explicitly to force synchronous blocking behavior if needed.",
     {
       name: z.string().describe("Solution unique name to export"),
       path: z.string().describe("Output .zip path"),
@@ -227,7 +228,11 @@ export function registerSolution(server: McpServer) {
       max_async_wait_minutes: z.number().int().positive().max(60).default(30),
       overwrite: z.boolean().default(false).describe("Overwrite existing .zip at path"),
       environment: z.string().optional().describe("Environment URL or ID; defaults to active"),
-      background: z.boolean().default(false).describe("Return job id immediately; track via job_* tools"),
+      background: z.boolean().optional().describe(
+        "Return job id immediately; track via job_* tools. " +
+        "DEFAULT: true when async_mode:true (recommended), false when async_mode:false. " +
+        "Pass explicit value to override.",
+      ),
     },
     async ({ name, path, managed, include, async_mode, max_async_wait_minutes, overwrite, environment, background }) => {
       const args = ["solution", "export", "--name", name, "--path", path];
@@ -236,7 +241,13 @@ export function registerSolution(server: McpServer) {
       if (async_mode) args.push("--async", "true", "--max-async-wait-time", String(max_async_wait_minutes));
       if (overwrite) args.push("--overwrite", "true");
       if (environment) args.push("--environment", environment);
-      if (background) return bg("solution_export", args);
+      // E4 fix: when async_mode is on (the recommended path), default background to true.
+      // Data-driven: p95 of solution_export was 77.6s in 3 weeks of usage — past Claude
+      // Desktop's default 60s MCP transport timeout. Forcing sync mode at p95 means the
+      // tool returns "Request timed out" even though pac is still running successfully.
+      // Caller can still opt back to sync with explicit `background:false`.
+      const effectiveBackground = background ?? async_mode;
+      if (effectiveBackground) return bg("solution_export", args);
       return runAsTool({
         toolName: "solution_export",
         binary: "pac",

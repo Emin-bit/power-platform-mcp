@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { writeFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, unlinkSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -76,7 +76,8 @@ export function registerEnvironment(server: McpServer) {
     "env_fetch",
     "Run a FetchXML query against the active (or specified) Dataverse environment. Returns result as text (Dataverse Web API does not return tabular data via PAC, just text dump). " +
     "Pass either `xml` (inline FetchXML — auto-written to a temp file internally) or `xml_file` (path to a .xml file). " +
-    "PAC quirks worth knowing: (a) PAC's `--xml` inline arg crashes with XmlException on some inputs, so MCP routes inline xml through a temp file using `--xmlFile` instead; (b) `<fetch top='N'>` errors with paging conflict, use `count='N'` if you need a limit; (c) PAC pages through ALL results regardless of `count` — limit on the FetchXML side or accept full output.",
+    "PAC quirks worth knowing: (a) PAC's `--xml` inline arg crashes with XmlException on some inputs, so MCP routes inline xml through a temp file using `--xmlFile` instead; (b) `<fetch top='N'>` errors with paging conflict, use `count='N'` if you need a limit; (c) PAC pages through ALL results regardless of `count` — limit on the FetchXML side or accept full output. " +
+    "Phase E (1.2.0): pre-flight XML well-formedness check + better hints on common failure patterns.",
     {
       xml: z.string().optional().describe("Inline FetchXML query string (auto-written to temp file). Use this OR xml_file."),
       xml_file: z.string().optional().describe("Path to a .xml file containing the FetchXML query"),
@@ -94,6 +95,49 @@ export function registerEnvironment(server: McpServer) {
           isError: true,
           content: [{ type: "text", text: "Pass only one of 'xml' or 'xml_file', not both." }],
         };
+      }
+
+      // E3 fix: validate xml_file existence BEFORE spawning pac. Previously a typo'd path
+      // produced a generic exit-1 from pac with stderr buried in the response; now we
+      // catch it client-side with a clear actionable message.
+      if (xml_file) {
+        if (!existsSync(xml_file)) {
+          return {
+            isError: true,
+            content: [{ type: "text", text: `xml_file does not exist: ${xml_file}` }],
+          };
+        }
+      }
+
+      // E3 fix: cheap pre-flight on inline XML. We don't run a full XML parser (overkill);
+      // we just check the two well-known footguns that produced 24% of historical failures:
+      //   (1) `<fetch top='N'>` triggers Dataverse "paging conflict" — common copy-paste mistake.
+      //   (2) Missing root <fetch> element — pac surfaces this as cryptic XmlException.
+      if (xml) {
+        const trimmed = xml.trim();
+        if (!/^<\?xml|^<fetch/i.test(trimmed)) {
+          return {
+            isError: true,
+            content: [{
+              type: "text",
+              text:
+                "FetchXML must start with `<?xml ...?>` or `<fetch ...>`. " +
+                "Got: " + trimmed.slice(0, 80).replace(/\n/g, "\\n") + "…",
+            }],
+          };
+        }
+        const topAttr = /<fetch\s[^>]*\btop\s*=\s*['"]\d+['"]/i.exec(trimmed);
+        if (topAttr) {
+          return {
+            isError: true,
+            content: [{
+              type: "text",
+              text:
+                "FetchXML uses `<fetch top='N'>`, which Dataverse rejects with a paging conflict via PAC's fetch command. " +
+                "Use `<fetch count='N'>` instead (PAC still pages through all results, so `count` is a per-page hint, not a total cap).",
+            }],
+          };
+        }
       }
 
       // If user passed inline `xml`, write it to a temp file and use --xmlFile.
@@ -117,12 +161,39 @@ export function registerEnvironment(server: McpServer) {
       if (environment) args.push("--environment", environment);
 
       try {
-        return await runAsTool({
+        const result = await runAsTool({
           toolName: "env_fetch",
           binary: "pac",
           args,
           timeoutMs: 120_000,
         });
+        // E3 fix: enrich the response with actionable hints when pac's stderr matches
+        // known failure patterns. Doesn't change the raw output — appends a hint section
+        // so Claude can take the right corrective action without re-googling PAC quirks.
+        if (result.isError) {
+          const text = result.content[0]?.text ?? "";
+          const hints: string[] = [];
+          if (/paging.*conflict|top.*count/i.test(text)) {
+            hints.push("Hint: replace `top='N'` with `count='N'` in your FetchXML.");
+          }
+          if (/Could not connect|authentication|auth.*expired|401/i.test(text)) {
+            hints.push("Hint: re-run `auth_list` and `auth_select`, or `auth_create --deviceCode` if the active profile expired.");
+          }
+          if (/XmlException|invalid xml|malformed/i.test(text)) {
+            hints.push("Hint: PAC's XML parser is strict — check for unbalanced tags, smart quotes, or missing namespace declarations.");
+          }
+          if (/Entity .* doesn.?t exist|table .* not.found/i.test(text)) {
+            hints.push("Hint: the entity logical name (e.g. `systemuser`, not `SystemUser`) must be all lowercase. Use `pacx_table_print` to list available entities.");
+          }
+          if (hints.length) {
+            result.content[0] = {
+              ...result.content[0],
+              type: "text",
+              text: text + "\n\n--- hints ---\n" + hints.join("\n"),
+            };
+          }
+        }
+        return result;
       } finally {
         if (tempPath) {
           try { unlinkSync(tempPath); } catch { /* best-effort cleanup */ }

@@ -18,7 +18,7 @@ export function registerLongRunning(server: McpServer) {
   server.tool(
     "solution_import",
     "Import a solution .zip into the active (or specified) Dataverse environment. DESTRUCTIVE: overwrites the named solution, may overwrite unmanaged customizations if force_overwrite=true. Long-running. " +
-    "Default: blocks until done (up to max_wait_minutes). Set background=true to fire-and-forget — returns a job id; track with job_status/job_wait/admin_status.",
+    "Phase F (1.2.0): tenant-safety hardening — when `expected_environment_url` OR `expected_tenant_substring` is provided, this tool runs `pac env who` AS THE FIRST STEP and refuses to proceed if the active context doesn't match. This prevents the wrong-tenant import disaster (real incident: user once imported a solution into the wrong tenant because the active pac auth profile had been silently changed). The check is OPT-IN (no expected_* args = same behavior as 1.0.x), but you should ALWAYS pass it for any production import.",
     {
       path: z.string().describe("Path to solution .zip"),
       environment: z.string().optional().describe("Override target env; defaults to active"),
@@ -33,9 +33,104 @@ export function registerLongRunning(server: McpServer) {
       max_wait_minutes: z.number().int().positive().max(180).default(60),
       background: z.boolean().default(false).describe("Return job id immediately"),
       confirm: z.boolean().describe("Must be true (destructive)"),
+      // F-phase tenant safety: at least ONE of expected_environment_url or
+      // expected_tenant_substring is STRONGLY RECOMMENDED. The MCP doesn't *require*
+      // them yet (would break existing scripts) but the safety advice in instructions
+      // tells Claude to always pass them.
+      expected_environment_url: z.string().optional().describe(
+        "Phase F tenant-safety: full target env URL (e.g. 'https://contoso.crm4.dynamics.com'). When set, " +
+        "the tool runs `pac env who` first and refuses to import unless the active env URL matches. This is " +
+        "the recommended guardrail after the wrong-tenant import incident.",
+      ),
+      expected_tenant_substring: z.string().optional().describe(
+        "Phase F tenant-safety: substring to match against the active tenant in `pac env who` output " +
+        "(e.g. 'contoso.onmicrosoft.com' or 'Contoso GmbH'). Use this when you know the tenant name but not " +
+        "the exact env URL. Case-insensitive match.",
+      ),
     },
     async (a) => {
-      if (!a.confirm) return blocked("solution_import is destructive. Re-call with confirm=true. Run whoami first to verify the target environment.");
+      if (!a.confirm) {
+        return blocked(
+          "solution_import is destructive. Re-call with confirm=true. " +
+          "STRONGLY RECOMMENDED: pass expected_environment_url or expected_tenant_substring so the tool can " +
+          "verify the active env/tenant BEFORE importing. (Real-world incident: user once imported into the " +
+          "wrong tenant because the active pac auth profile had silently changed between sessions.)",
+        );
+      }
+
+      // Phase F: tenant-safety pre-flight. When expected_* args are supplied, run
+      // `pac env who` and abort BEFORE running the actual import if context doesn't match.
+      // This is the single most important safety guardrail in the entire MCP — a wrong
+      // tenant import can corrupt a production environment.
+      //
+      // F-review fix: substring match alone is too lenient — `expected_environment_url:
+      // "https://contoso..."` would falsely match an active "https://contoso-dev..." env
+      // (same prefix, different env). To prevent this we extract every full https URL
+      // from `pac env who` stdout/stderr and require an EXACT origin match.
+      if (a.expected_environment_url || a.expected_tenant_substring) {
+        const { runPac } = await import("../pac.js");
+        const whoResult = await runPac({ binary: "pac", args: ["env", "who"], timeoutMs: 30_000 });
+        if (whoResult.exitCode !== 0) {
+          return blocked(
+            "Phase F tenant-safety pre-flight FAILED: `pac env who` returned exit " + whoResult.exitCode +
+            ". Cannot verify the active environment before import.\n" +
+            "stderr: " + (whoResult.stderr ?? "").slice(0, 300) + "\n" +
+            "Fix: run `auth_list` and `auth_select` to ensure a valid active profile, then retry.",
+          );
+        }
+        const whoText = whoResult.stdout + "\n" + whoResult.stderr;
+        const whoLower = whoText.toLowerCase();
+        if (a.expected_environment_url) {
+          // Extract candidate URLs from pac output and compare ORIGINS (scheme + host),
+          // not substrings. This blocks the contoso-vs-contoso-dev confusion class.
+          const want = a.expected_environment_url.toLowerCase().replace(/\/+$/, "");
+          const wantOrigin = (() => {
+            try { return new URL(want).origin.toLowerCase(); }
+            catch { return null; }
+          })();
+          if (!wantOrigin) {
+            return blocked(
+              "Phase F tenant-safety: `expected_environment_url='" + a.expected_environment_url +
+              "'` is not a parseable URL. Pass a full URL like 'https://contoso.crm4.dynamics.com'.",
+            );
+          }
+          const foundUrls = [...whoText.matchAll(/https:\/\/[^\s,]+/gi)]
+            .map(m => {
+              try { return new URL(m[0].replace(/[.,;)]+$/, "")).origin.toLowerCase(); }
+              catch { return null; }
+            })
+            .filter((s): s is string => s !== null);
+          if (!foundUrls.includes(wantOrigin)) {
+            return blocked(
+              "🛑 TENANT-SAFETY BLOCK: expected_environment_url='" + a.expected_environment_url + "' does NOT match any URL in `pac env who` output. " +
+              "Active context is different from what you specified. REFUSING TO IMPORT.\n\n" +
+              "Want origin: " + wantOrigin + "\n" +
+              "Found URLs:  " + (foundUrls.length ? foundUrls.join(", ") : "(no URL in pac env who output)") + "\n\n" +
+              "Active context (`pac env who`):\n" + (whoResult.stdout.trim() || "(empty)").slice(0, 600) + "\n\n" +
+              "Fix: either (a) run `auth_select` to switch to the right profile, OR (b) update the " +
+              "`expected_environment_url` arg to match the actual target.",
+            );
+          }
+        }
+        if (a.expected_tenant_substring) {
+          // Substring is intentional for this field — user typically passes a tenant name
+          // fragment like "contoso.onmicrosoft.com" or "DCCS GmbH". Minimum 4 chars to avoid
+          // accidental matches on common short strings.
+          if (a.expected_tenant_substring.length < 4) {
+            return blocked(
+              "Phase F tenant-safety: `expected_tenant_substring` must be at least 4 characters " +
+              "(received '" + a.expected_tenant_substring + "'). Pass a longer fragment of the tenant name.",
+            );
+          }
+          if (!whoLower.includes(a.expected_tenant_substring.toLowerCase())) {
+            return blocked(
+              "🛑 TENANT-SAFETY BLOCK: expected_tenant_substring='" + a.expected_tenant_substring + "' does NOT appear in `pac env who` output. REFUSING TO IMPORT.\n\n" +
+              "Active context:\n" + (whoResult.stdout.trim() || "(empty)").slice(0, 600),
+            );
+          }
+        }
+      }
+
       const args = ["solution", "import", "--path", a.path];
       if (a.environment) args.push("--environment", a.environment);
       if (a.activate_plugins) args.push("--activate-plugins", "true");

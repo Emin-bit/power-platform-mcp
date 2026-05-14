@@ -310,6 +310,86 @@ async function main() {
   }
   console.log(`OK ${bgRequiredTools.length} tools expose background:true (1.0.2 transport timeout fix)`);
 
+  // Total tool count assertion (Phase E review nit #17): keep description string + actual count in sync.
+  if (listRes.result.tools.length !== 112) {
+    throw new Error(
+      `Total tool count mismatch: package.json description claims 112, actual = ${listRes.result.tools.length}. ` +
+      `Update both in tandem when adding or removing tools.`,
+    );
+  }
+  console.log("OK 112 total tools registered (description string matches)");
+
+  // Phase F: pp_self_review tool registered + GOLDEN RULES in instructions.
+  if (!listRes.result.tools.some(t => t.name === "pp_self_review")) {
+    throw new Error("Phase F: pp_self_review tool not registered");
+  }
+  for (const required of ["GOLDEN RULE #1", "GOLDEN RULE #2", "GOLDEN RULE #3", "expected_environment_url", "ParseJSON", "Category 5"]) {
+    if (!instructions.includes(required)) {
+      throw new Error(`Phase F instructions missing required term: ${required}`);
+    }
+  }
+  console.log("OK Phase F pp_self_review tool + 6 GOLDEN RULES in instructions");
+
+  // Phase F: solution_import tenant-safety guard refuses when expected_environment_url mismatches.
+  send({ jsonrpc: "2.0", id: 60, method: "tools/call",
+    params: { name: "solution_import", arguments: {
+      path: "/tmp/nonexistent-test.zip",
+      confirm: true,
+      expected_environment_url: "https://this-tenant-cannot-possibly-exist.crm4.dynamics.com",
+    } } });
+  const r60 = await waitFor(60, 45_000);
+  const r60text = r60.result?.content?.[0]?.text ?? "";
+  if (!r60.result?.isError || !r60text.includes("TENANT-SAFETY")) {
+    throw new Error(`solution_import expected_environment_url guard should block. Got:\n${r60text.slice(0, 300)}`);
+  }
+  console.log("OK solution_import refuses on expected_environment_url mismatch (Phase F)");
+
+  // ---------- Phase D + E regressions (1.2.0) ----------
+  const phaseDEExpected = [
+    "canvas_pack_sync", "canvas_patch_property", "canvas_diff", "canvas_validate_yaml",
+    "pp_token", "canvas_layer_inspect", "canvas_layer_remove",
+  ];
+  const missingDE = phaseDEExpected.filter(n => !listRes.result.tools.some(t => t.name === n));
+  if (missingDE.length) throw new Error(`Phase D+E tools missing: ${missingDE.join(", ")}`);
+  console.log(`OK Phase D+E tools registered (${phaseDEExpected.length} new)`);
+
+  // E3: env_fetch pre-flight rejects `top='N'` before spawning pac.
+  send({ jsonrpc: "2.0", id: 50, method: "tools/call",
+    params: { name: "env_fetch", arguments: { xml: "<fetch top='3'><entity name='systemuser'></entity></fetch>" } } });
+  const r50 = await waitFor(50, 10_000);
+  if (!r50.result?.isError) throw new Error("env_fetch top= pre-flight should error");
+  if (!(r50.result?.content?.[0]?.text ?? "").includes("count='N'")) {
+    throw new Error("env_fetch top= pre-flight should suggest count='N' alternative");
+  }
+  console.log("OK env_fetch top='N' pre-flight rejects with actionable hint (E3)");
+
+  // E3: env_fetch pre-flight rejects malformed (non-XML) inline content.
+  send({ jsonrpc: "2.0", id: 51, method: "tools/call",
+    params: { name: "env_fetch", arguments: { xml: "not xml at all" } } });
+  const r51 = await waitFor(51, 10_000);
+  if (!r51.result?.isError || !(r51.result?.content?.[0]?.text ?? "").includes("must start with")) {
+    throw new Error("env_fetch should reject non-XML before spawning pac");
+  }
+  console.log("OK env_fetch rejects non-XML before spawning pac (E3)");
+
+  // E7: canvas_layer_remove gated by confirm:true.
+  send({ jsonrpc: "2.0", id: 52, method: "tools/call",
+    params: { name: "canvas_layer_remove", arguments: { env_url: "https://x.crm.dynamics.com", component_id: "00000000-0000-0000-0000-000000000000", confirm: false } } });
+  const r52 = await waitFor(52, 10_000);
+  if (!r52.result?.isError || !(r52.result?.content?.[0]?.text ?? "").includes("BLOCKED")) {
+    throw new Error("canvas_layer_remove must gate behind confirm:true");
+  }
+  console.log("OK canvas_layer_remove gated by confirm:true (E7)");
+
+  // D: canvas_pack_sync gated by confirm:true (refuses to overwrite without explicit OK).
+  send({ jsonrpc: "2.0", id: 53, method: "tools/call",
+    params: { name: "canvas_pack_sync", arguments: { sources: "/tmp/nonexistent", output: "/tmp/x.msapp", confirm: false } } });
+  const r53 = await waitFor(53, 10_000);
+  if (!r53.result?.isError || !(r53.result?.content?.[0]?.text ?? "").includes("BLOCKED")) {
+    throw new Error("canvas_pack_sync must gate behind confirm:true");
+  }
+  console.log("OK canvas_pack_sync gated by confirm:true (D2)");
+
   console.log("\nALL SMOKE TESTS PASSED");
   child.kill();
   process.exit(0);

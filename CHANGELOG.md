@@ -2,6 +2,96 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] — 2026-05-14 (Phase D + Phase E + Phase F)
+
+Three phases shipped together. Tool count: 105 → 112 (+6 local tools, +3 Web API tools, +1 token helper, +1 self-review). No breaking changes; all hardening is additive.
+
+### Phase F — Embedded Expert Knowledge + Tenant Safety + Self-Review
+
+Driven by user request after 17 days of usage: "ugradi što više znanja kako se to radi", with specific
+incident reports of (a) wrong-tenant solution import, (b) repeated canvas-app deploy mistakes, (c) Power Fx
+syntax errors silently passing pack and showing as broken formulas in Studio.
+
+#### Added
+- **`pp_self_review`** — local log mining tool. Generates a structured weekly/monthly report from
+  `~/.power-platform-mcp/logs/`: tool frequency, failure rate (with stderr extracts since 1.2.0),
+  slow operations, canvas workflow chain analysis, auth/tenant switching audit, solution_import
+  tenant-safety audit, week-over-week trend, and heuristic suggestions. Pure local, no network.
+
+#### Changed (tenant safety)
+- **`solution_import`** gained two opt-in pre-flight parameters: `expected_environment_url` and
+  `expected_tenant_substring`. When either is set, the tool runs `pac env who` BEFORE the import
+  and HARD-REFUSES (returns 🛑 TENANT-SAFETY BLOCK) if the active context doesn't match. This
+  prevents the wrong-tenant import disaster reported by the user. Existing callers that don't
+  pass these args see unchanged behavior.
+
+#### Changed (embedded expert knowledge in SERVER_INSTRUCTIONS)
+The MCP's `instructions` text grew from 5,197 chars to 17,808 chars with 6 GOLDEN RULES:
+  1. **Auth-once-per-session + verify before destructive ops** — explicit policy for Claude.
+  2. **Canvas app deploy recipe** — the 9-step workflow (whoami → list → download → edit →
+     validate_yaml → pack_sync → diff → solution import path → verify with layer_inspect).
+     Includes common failure modes + recovery.
+  3. **Power Fx syntax cheatsheet** — Decimal-by-default, `&` for concat, `&&`/`||`/`!` for logic,
+     `<>` for inequality, mandatory leading `=` in YAML, block-scalar requirement for `:`/`#`,
+     no if/for/try statements. The 10 syntax footguns that account for most "pack succeeded but
+     Studio shows broken formula" incidents.
+  4. **Flow / Power Automate categories** — codes 0–7 (BPF, ModernFlow, etc.) so pacx_workflow_*
+     calls use the right filter; known timeout for `--solution *` wildcard.
+  5. **env_fetch quirks** — the 3 PAC footguns the MCP pre-flights (top vs count, --xml crash,
+     paging-through-all-results) with the actionable stderr-hint pattern.
+  6. **Periodic self-review** — Claude knows to suggest `pp_self_review` weekly.
+
+### Tests
+2 new regression tests in `smoke-test.mjs`:
+- `pp_self_review` tool registered + produces output for past 30 days.
+- `solution_import` `expected_environment_url` mismatch returns "TENANT-SAFETY BLOCK" with active
+  context in the response.
+
+### Phase D — Canvas .msapp YAML↔JSON sync (LOCAL ONLY)
+
+Driven by Microsoft's own PowerApps-Tooling known issue PA3013: `pac canvas pack` is officially "Preview" + "Deprecated", and silently does NOT sync `Src/*.pa.yaml` edits into `Controls/*.json`. Studio reads from JSON, so YAML edits never reach the live app — a real user lost ~4h of debugging to this before manually shimming around it with a Python script.
+
+#### Added
+- **`canvas_pack_sync`** — packs an unpacked sources directory back into a `.msapp` AND synchronizes every YAML formula into the matching JSON `Rule.InvariantScript`. Gated by `confirm:true`. Has an `allow_add_new:false` default (key design call — see below).
+- **`canvas_patch_property`** — surgical edit: change ONE control's ONE property on a packed `.msapp` without unpack/pack round-trip. Mutates both JSON and YAML in place.
+- **`canvas_diff`** — diff two `.msapp` files (or unpacked source directories) at property level. Surfaces controls added/removed/modified with old → new formulas.
+- **`canvas_validate_yaml`** — pre-flight YAML grammar check: leading `=` rule, single-line vs block-scalar character rules, quoted-string acceptance, top-level shape.
+
+#### Notable design call
+`canvas_pack_sync` is UPDATE-ONLY by default (`allow_add_new:false`). YAML often carries properties that live in JSON's `ControlPropertyState.AutoRuleBindingString` rather than `Rules` (e.g. `LayoutMaxHeight`, `FillPortions`, `LayoutMinWidth`). Empirical test on a real-world Lamello canvas app: with `allow_add_new:true`, a fresh round-trip would have added 1093 spurious rules; with the safe default, round-trip identity is preserved (`canvas_diff origin vs pack_sync(unpack(origin))` shows 0 changed properties).
+
+### Phase E — Observability + Dataverse Web API
+
+Driven by log mining of `~/.power-platform-mcp/logs/` across 17 days: surfaced 11.9% overall tool failure rate, with `pacx_run` at 44% and `env_fetch` at 24%, and 2 timeouts at 60s for `pacx_workflow_list --solution *`. Every one of those failures was invisible because the runner only logged metadata (exit code, duration), not stderr.
+
+#### Added
+- **`pp_token`** — cross-platform bearer-token helper for Dataverse Web API. Tries `az account get-access-token` first (Azure CLI), falls back to `pwsh + Az.Accounts`. Default `reveal:false` masks the token to last-12-char form to avoid accidental leaks; `reveal:true` returns the full JWT. PREREQ: `az login --tenant <yourtenant>` (or `Connect-AzAccount`) on the machine.
+- **`canvas_layer_inspect`** — read solution component layers via Dataverse Web API `RetrieveSolutionComponentLayers`. Surfaces which publisher / solution owns the active layer when `solution_import` keeps failing with "active layer blocks import".
+- **`canvas_layer_remove`** — DESTRUCTIVE, CANNOT BE UNDONE. Removes the active unmanaged customization layer via Dataverse Web API action `RemoveActiveCustomizations`. Unblocks solution imports when an existing active layer from a different publisher prevents updating the component. Requires `confirm:true`.
+
+#### Changed (observability)
+- **Logger** (`src/logger.ts`) — added `redactPersonal()` filter that replaces `homedir()` with `~` and OS username with `<user>` in all log payloads (case-insensitive, min 3-char username). Username regex compiled once at module load. Added `logTruncate(s, 500)` helper. Goal: a user can copy `~/.power-platform-mcp/logs/*.log` and share it for support without leaking machine identity.
+- **Runner + passthrough** (`src/runner.ts`, `src/tools/passthrough.ts`) — when a tool call fails (exit ≠ 0 OR timed out), the log entry is now `level: "error"` AND captures truncated `stderr` (or `stdoutTail` when stderr empty). Historically every entry was `level: "info"`, so log analyzers couldn't separate the 11.9% failures from the 88.1% successes. With the new level + stderr capture, post-hoc failure analysis is feasible.
+
+#### Changed (per-tool UX fixes from log analysis)
+- **`env_fetch`** — pre-flight rejects `<fetch top='N'>` (100% historical fail rate via PAC's CLI — paging conflict) with a clear "use `count='N'` instead" hint. Rejects non-XML inline content before spawning pac. Validates `xml_file` existence with `existsSync()`. On pac error, post-processes stderr to append actionable hints: top/count swap, expired auth, malformed XML, entity-not-found.
+- **`solution_export`** — `background` is now optional; when `async_mode:true` (the default), exports auto-route to background mode because historical p95 was 77.6s, past Claude Desktop's 60s MCP transport timeout. Explicit `background:false` still works.
+- **`pacx_workflow_list`** — `background` auto-defaults to true when `solution:'*'`. Historical data: 100% of `--solution *` calls timed out at 60s.
+
+### Tests
+6 new regression tests in `smoke-test.mjs`:
+- All 7 Phase D+E tools registered.
+- `env_fetch` `top='N'` pre-flight rejects with actionable hint.
+- `env_fetch` rejects non-XML before spawning pac.
+- `canvas_layer_remove` gated by `confirm:true`.
+- `canvas_pack_sync` gated by `confirm:true`.
+- `solution_export` schema makes `background` optional (auto-default path wired).
+
+### Privacy
+- Log file (`~/.power-platform-mcp/logs/pac-mcp-YYYY-MM-DD.log`) is now safe to share — homedir paths and OS username are auto-redacted.
+
+[1.2.0]: https://github.com/Emin-bit/power-platform-mcp/releases/tag/v1.2.0
+
 ## [1.0.5] — 2026-04-27 (Renamed to scoped npm package)
 
 ### Changed (BREAKING for npm install path only)

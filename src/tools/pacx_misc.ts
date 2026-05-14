@@ -82,17 +82,32 @@ export function registerPacxMisc(server: McpServer) {
   // ============ workflow ============
   server.tool(
     "pacx_workflow_list",
-    "USE THIS to list flows / classic workflows / business rules / BPF / desktop flows / AI flows. ⚠️ PAC has NO equivalent direct workflow listing tool. Optionally filter by name, category, or solution.",
+    "USE THIS to list flows / classic workflows / business rules / BPF / desktop flows / AI flows. ⚠️ PAC has NO equivalent direct workflow listing tool. Optionally filter by name, category, or solution. " +
+    "Phase E (1.2.0): when `solution:'*'` (any solution) is used, the tool auto-routes through background mode because that scan is known to time out at the default 60s sync budget on tenants with hundreds of workflows.",
     {
       name: z.string().optional().describe("Substring filter on workflow unique name"),
       category: WorkflowCategory.optional().describe("Filter by workflow category"),
       solution: z.string().optional().describe("Solution unique name (default: PACX default solution; pass '*' to disable filter)"),
+      background: z.boolean().optional().describe(
+        "Force background mode. AUTO-ENABLED when solution:'*' (wildcard scan of all solutions) — that pattern has historically timed out at 60s. Pass explicit false to override the auto-promotion.",
+      ),
     },
-    async ({ name, category, solution }) => {
+    async ({ name, category, solution, background }) => {
       const args = ["workflow", "list"];
       if (name) args.push("--name", name);
       if (category) args.push("--category", category);
       if (solution) args.push("--solution", solution);
+
+      // E5 fix: 100% of historical pacx_workflow_list calls with `--solution *` timed out
+      // at 60s (2 of 2 attempts in May 2 logs). The wildcard scan can take 2–5 minutes
+      // on tenants with hundreds of workflows. Auto-route to background mode so the call
+      // doesn't bounce off Claude Desktop's MCP transport timeout.
+      const isWildcard = solution === "*";
+      const effectiveBackground = background ?? isWildcard;
+      if (effectiveBackground) {
+        const bg = (await import("../jobs.js")).backgroundResult;
+        return bg("pacx_workflow_list", "pacx", args);
+      }
       return runAsTool({ toolName: "pacx_workflow_list", binary: "pacx", args, timeoutMs: 60_000 });
     }
   );

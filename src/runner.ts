@@ -1,5 +1,5 @@
 import { runPac, maskArgs, type RunOptions, type PacBinary } from "./pac.js";
-import { log } from "./logger.js";
+import { log, logTruncate } from "./logger.js";
 
 export interface ToolContent {
   type: "text";
@@ -41,10 +41,21 @@ export async function runAsTool(opts: RunAsToolOptions): Promise<ToolResult> {
 
   try {
     const r = await runPac({ binary, args, cwd, timeoutMs });
-    log("info", `${toolName} done`, {
+    // E2 fix: log at `error` level when the underlying command failed, and persist
+    // a truncated copy of stderr (+ stdout when stderr is empty) into the log file
+    // so analyzers can answer "what failed and why" without needing the live transcript.
+    // Previously this was always logged at `info`, so the daily logs had no signal
+    // separating successful runs from failures — see the 24% / 44% silent failure
+    // rates uncovered in the May 12 log-mining session.
+    const isFailure = r.exitCode !== 0 || r.timedOut;
+    log(isFailure ? "error" : "info", `${toolName} done`, {
       exitCode: r.exitCode,
       durationMs: r.durationMs,
       timedOut: r.timedOut,
+      ...(isFailure ? {
+        stderr: logTruncate(r.stderr),
+        stdoutTail: r.stderr.trim() ? undefined : logTruncate(r.stdout),
+      } : {}),
     });
 
     const stdout = r.stdout.trimEnd();

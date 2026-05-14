@@ -4,7 +4,7 @@ import { runPac, maskArgs, type RunResult, type PacBinary } from "../pac.js";
 import { isDestructive, safeModeEnabled } from "../safety.js";
 import { parseShellArgs } from "../shell.js";
 import { backgroundResult } from "../jobs.js";
-import { log } from "../logger.js";
+import { log, logTruncate } from "../logger.js";
 
 function formatResult(binary: string, argv: string[], r: RunResult): string {
   const header = `$ ${binary} ${maskArgs(argv).join(" ")}\nexit=${r.exitCode} duration=${r.durationMs}ms${r.timedOut ? " [TIMED OUT]" : ""}`;
@@ -83,10 +83,20 @@ export function registerPassthrough(server: McpServer) {
             timeoutMs: (timeout_seconds ?? 600) * 1000,
           });
 
-          log("info", `${binary}_run done`, {
+          // E2 fix: capture stderr at error-level when the command actually fails, so
+          // post-hoc log analysis can answer "WHY did pacx_run exit 255 this morning?"
+          // rather than just "exit code was 255". The user's May-12 log-mining session
+          // surfaced that 44% of pacx_run calls failed with exit 255 and zero diagnostic
+          // info in the log — fixing here.
+          const isFailure = result.exitCode !== 0 || result.timedOut;
+          log(isFailure ? "error" : "info", `${binary}_run done`, {
             exitCode: result.exitCode,
             durationMs: result.durationMs,
             timedOut: result.timedOut,
+            ...(isFailure ? {
+              stderr: logTruncate(result.stderr),
+              stdoutTail: result.stderr.trim() ? undefined : logTruncate(result.stdout),
+            } : {}),
           });
 
           return {
