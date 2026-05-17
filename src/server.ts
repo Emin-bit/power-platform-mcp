@@ -14,6 +14,7 @@ import { registerCanvasLayer } from "./tools/canvas-layer.js";
 import { registerPpToken } from "./tools/pp_token.js";
 import { registerSelfReview } from "./tools/pp_self_review.js";
 import { registerPages } from "./tools/pages.js";
+import { registerPagesApi } from "./tools/pages-api.js";
 import { registerPcf } from "./tools/pcf.js";
 import { registerPlugin } from "./tools/plugin.js";
 import { registerConnection } from "./tools/connection.js";
@@ -32,7 +33,7 @@ import { safeModeEnabled } from "./safety.js";
 import { getEffectivePath } from "./pac.js";
 import { killAllRunning } from "./jobs.js";
 
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 
 const SERVER_INSTRUCTIONS = `
 Power Platform MCP server. This server bridges TWO complementary CLIs:
@@ -273,6 +274,47 @@ Call \`pp_self_review\` periodically (weekly or after any major workflow) to sur
   • Week-over-week trend in failure rate.
 
 Output is local-only and homedir/username redacted, so it's safe to paste into chat or issues.
+
+══════════════════════════════════════════════════════════════════════════════════════════════════
+GOLDEN RULE #7 — POWER PAGES DEPLOY RECIPE (the cache-clear that breaks every CI/CD)
+══════════════════════════════════════════════════════════════════════════════════════════════════
+A 30-day production analysis graded Power Pages support 6/10 with ONE blocking gap: after
+\`pages_upload\`, changes DON'T appear because the server-side cache still serves old content,
+and \`pac\` has no cache-clear command. The team wasted 5-15 min/deploy driving a browser to
+Design Studio "Sync". As of v1.3.0 the MCP solves this.
+
+THE CORRECT POWER PAGES DEPLOY WORKFLOW — every time:
+
+  Standard data model site:
+    1. whoami                       → confirm tenant + env (record the Environment ID GUID!)
+    2. pages_list                   → get the website ID (GUID)
+    3. pages_download --path ...    → pull site to local disk
+    4. edit files locally
+    5. pages_upload --confirm true  → push changes (DOES NOT make them live yet)
+    6. pages_restart --environment_id <GUID> --website_id <GUID> --confirm true
+                                    → THIS is the cache-clear. Restart flushes ALL server-side
+                                      cache (metadata + config + data). ~60-90s to re-warm.
+    7. verify on the live site after ~90s.
+
+  Enhanced data model site (Microsoft's recommended format for new projects):
+    Same, but use pages_download_code_site / pages_upload_code_site in steps 3/5.
+    Migrate Standard→Enhanced with pages_migrate_datamodel (check_status:true first!).
+
+KEY POINTS:
+  • NEVER tell the user to open a browser / Design Studio to clear cache. pages_restart is the
+    reliable programmatic equivalent. The old \`/_services/about\` clear-cache page needs a portal
+    web role + portal auth cookie and is exactly the fragile path that wasted the team's time.
+  • pages_restart needs the Environment ID (GUID — from whoami/env_who, NOT the org URL) and the
+    Website ID (GUID — from pages_list). PREREQ: \`az login\` by a user with Power Pages admin
+    role (service-principal flow is NOT supported by the admin API).
+  • A restart is a brief outage + temporary slowness while cache re-warms. For high-traffic
+    production sites, prefer non-peak hours — but it IS the correct action, don't avoid it.
+  • pages_site_status (read-only) shows provisioning state + data model version — use it for
+    "is the restart done yet" / "what data model is this" without a browser.
+  • env_fetch against portal tables (adx_webpage, adx_webfile, adx_contentsnippet) is great for
+    diagnostics. The Phase E (1.2.0) env_fetch pre-flights (rejects top='N', validates XML, file
+    existence, surfaces actionable stderr hints) already address the historical 28% fail rate —
+    use count='N' not top='N'.
 `.trim();
 
 export async function startServer(): Promise<void> {
@@ -292,6 +334,7 @@ export async function startServer(): Promise<void> {
   registerPpToken(server);
   registerSelfReview(server);
   registerPages(server);
+  registerPagesApi(server);
   registerPcf(server);
   registerPlugin(server);
   registerConnection(server);

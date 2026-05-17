@@ -311,13 +311,13 @@ async function main() {
   console.log(`OK ${bgRequiredTools.length} tools expose background:true (1.0.2 transport timeout fix)`);
 
   // Total tool count assertion (Phase E review nit #17): keep description string + actual count in sync.
-  if (listRes.result.tools.length !== 112) {
+  if (listRes.result.tools.length !== 118) {
     throw new Error(
-      `Total tool count mismatch: package.json description claims 112, actual = ${listRes.result.tools.length}. ` +
+      `Total tool count mismatch: package.json description claims 118, actual = ${listRes.result.tools.length}. ` +
       `Update both in tandem when adding or removing tools.`,
     );
   }
-  console.log("OK 112 total tools registered (description string matches)");
+  console.log("OK 118 total tools registered (description string matches)");
 
   // Phase F: pp_self_review tool registered + GOLDEN RULES in instructions.
   if (!listRes.result.tools.some(t => t.name === "pp_self_review")) {
@@ -389,6 +389,49 @@ async function main() {
     throw new Error("canvas_pack_sync must gate behind confirm:true");
   }
   console.log("OK canvas_pack_sync gated by confirm:true (D2)");
+
+  // ---------- Phase H (1.3.0): Power Pages gap closure ----------
+  const phaseHExpected = [
+    "pages_download_code_site", "pages_upload_code_site", "pages_migrate_datamodel",
+    "pages_bootstrap_migrate", "pages_restart", "pages_site_status",
+  ];
+  const missingH = phaseHExpected.filter(n => !listRes.result.tools.some(t => t.name === n));
+  if (missingH.length) throw new Error(`Phase H tools missing: ${missingH.join(", ")}`);
+  console.log(`OK Phase H Power Pages tools registered (${phaseHExpected.length} new)`);
+
+  // pages_restart must gate behind confirm:true (restart = brief outage).
+  send({ jsonrpc: "2.0", id: 9601, method: "tools/call",
+    params: { name: "pages_restart", arguments: { environment_id: "00000000-0000-0000-0000-000000000000", website_id: "11111111-1111-1111-1111-111111111111", confirm: false } } });
+  const pr = await waitFor(9601, 15_000);
+  if (!pr.result?.isError || !(pr.result?.content?.[0]?.text ?? "").includes("BLOCKED")) {
+    throw new Error("pages_restart must gate behind confirm:true");
+  }
+  console.log("OK pages_restart gated by confirm:true (H2)");
+
+  // pages_upload_code_site must gate behind confirm:true (destructive).
+  send({ jsonrpc: "2.0", id: 9602, method: "tools/call",
+    params: { name: "pages_upload_code_site", arguments: { root_path: "/tmp/x", confirm: false } } });
+  const puc = await waitFor(9602, 15_000);
+  if (!puc.result?.isError || !(puc.result?.content?.[0]?.text ?? "").includes("BLOCKED")) {
+    throw new Error("pages_upload_code_site must gate behind confirm:true");
+  }
+  console.log("OK pages_upload_code_site gated by confirm:true (H1)");
+
+  // pages_migrate_datamodel destructive mode (revert) must gate behind confirm:true;
+  // check_status mode must NOT (it's read-only).
+  send({ jsonrpc: "2.0", id: 9603, method: "tools/call",
+    params: { name: "pages_migrate_datamodel", arguments: { website_id: "00000000-0000-0000-0000-000000000000", revert_to_standard: true, confirm: false } } });
+  const pmd = await waitFor(9603, 15_000);
+  if (!pmd.result?.isError || !(pmd.result?.content?.[0]?.text ?? "").includes("BLOCKED")) {
+    throw new Error("pages_migrate_datamodel destructive mode (revert_to_standard) must gate behind confirm:true");
+  }
+  console.log("OK pages_migrate_datamodel destructive mode gated by confirm:true (H1)");
+
+  // GOLDEN RULE #7 (Power Pages deploy recipe) embedded in instructions.
+  for (const needle of ["GOLDEN RULE #7", "pages_restart", "server-side cache"]) {
+    if (!instructions.includes(needle)) throw new Error(`Phase H instructions missing: ${needle}`);
+  }
+  console.log("OK SERVER_INSTRUCTIONS embeds Power Pages GOLDEN RULE #7 (H4)");
 
   console.log("\nALL SMOKE TESTS PASSED");
   child.kill();

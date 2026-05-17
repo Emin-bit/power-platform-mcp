@@ -1,7 +1,7 @@
 {
   "name": "@emin-bit/power-platform-mcp",
-  "version": "1.2.0",
-  "description": "MCP (Model Context Protocol) server that bridges Claude with the Microsoft Power Platform CLI (pac and pacx) and Dataverse Web API. 112 typed tools covering auth, environments, solutions, canvas apps (incl. local YAML↔JSON pack-sync that fixes pac canvas pack's known PA3013 bug, plus direct Dataverse layer inspect/remove for unblocking solution imports), Power Pages, PCF, plugins, connections, connectors, applications, model builder, telemetry, PACX table/column/workflow operations, a generic passthrough escape hatch, a cross-platform pp_token helper, and pp_self_review for log mining. Hardened solution_import refuses to run against the wrong tenant when expected_environment_url is provided. SERVER_INSTRUCTIONS embeds the full canvas-app deploy recipe, Power Fx syntax cheatsheet, Power Automate flow categories, and tenant-safety golden rules.",
+  "version": "1.3.0",
+  "description": "MCP (Model Context Protocol) server that bridges Claude with the Microsoft Power Platform CLI (pac and pacx), Dataverse Web API, and the Power Platform admin API. 118 typed tools covering auth, environments, solutions, canvas apps (local YAML↔JSON pack-sync fixing pac canvas pack's PA3013 bug + Dataverse layer inspect/remove), full 8/8 Power Pages CLI coverage plus pages_restart (the programmatic server-side cache-clear that replaces the Design Studio Sync browser dance), PCF, plugins, connections, connectors, applications, model builder, telemetry, PACX table/column/workflow operations, a generic passthrough escape hatch, a cross-platform pp_token helper, and pp_self_review log mining. Hardened solution_import refuses the wrong tenant. SERVER_INSTRUCTIONS embeds canvas + Power Pages deploy recipes, Power Fx cheatsheet, flow categories, and tenant-safety golden rules.",
   "type": "module",
   "license": "MIT",
   "author": "Emin Mujabašić",

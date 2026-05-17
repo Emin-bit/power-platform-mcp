@@ -2,6 +2,40 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] — 2026-05-17 (Phase H — Power Pages production-gap closure)
+
+Driven by a 30-day production analysis of a real multilingual Power Pages site (beanstandung.powerappsportals.com) that graded Power Pages support 6/10. Tool count 112 → 118. No breaking changes.
+
+### The #1 blocker — SOLVED
+
+The analysis identified a single workflow-breaking gap: after `pages_upload`, changes never appear because the server-side cache keeps serving old content, and `pac` has NO cache-clear command. The team had to drive a browser (Chrome MCP) to Design Studio and click "Sync" — a 5–15 min, multi-retry, auth-fragile dance per deploy.
+
+- **`pages_restart`** (NEW) — restarts the website via the Power Platform admin API (`POST .../powerpages/environments/{envId}/websites/{websiteId}/restart`). A restart flushes ALL server-side cache (metadata + configuration + data tables) — the reliable programmatic equivalent of the Design Studio "Sync" button. Gated by `confirm:true` (brief outage + cache re-warm). Bearer acquired the same way as `pp_token`/`canvas_layer_*` (az CLI → pwsh+Az fallback; service-principal flow is NOT supported by this admin API — needs a user with the Power Pages admin role).
+- **`pages_site_status`** (NEW) — read-only website diagnostics via the same API (provisioning state, data model version, URLs). Answers "is the restart done / what data model is this" without a browser. Omit `website_id` to list all sites in the environment.
+
+### Full Power Pages CLI coverage (was 4/8 → now 8/8)
+
+The analysis flagged that only 4 of 8 `pac pages` subcommands were exposed, and the Enhanced data model (code-site) gap was the most painful because Microsoft steers all new Power Pages dev toward the Enhanced model.
+
+- **`pages_download_code_site`** (NEW) — download an Enhanced data model (VS Code / code-first) site.
+- **`pages_upload_code_site`** (NEW) — upload a compiled Enhanced data model site. Gated by `confirm:true`; hint reminds to `pages_restart` afterward.
+- **`pages_migrate_datamodel`** (NEW) — Standard→Enhanced migration with `check_status` (non-destructive, no confirm) and destructive modes (migrate / revert / reset / update-version) gated by `confirm:true`.
+- **`pages_bootstrap_migrate`** (NEW) — Bootstrap v3→v5 local HTML transformation.
+
+### Embedded knowledge
+
+- **SERVER_INSTRUCTIONS GOLDEN RULE #7 — Power Pages deploy recipe.** Step-by-step Standard + Enhanced workflows ending in `pages_restart`; explicit "NEVER tell the user to open a browser to clear cache"; env_fetch portal-table diagnostics guidance noting the Phase E pre-flights already address the historical 28% env_fetch failure rate (`count='N'` not `top='N'`).
+
+### Already addressed in 1.2.0 (noted because the analysis predates it)
+
+The analysis (30 days old) also flagged `env_fetch` 28% errors and `solution_export` p95 77.6s > 60s timeout. Both were already fixed in **1.2.0 Phase E**: env_fetch pre-flight (rejects `top='N'`, validates XML well-formedness + file existence, surfaces actionable stderr hints) and `solution_export` auto-routing to background when `async_mode:true`. No further work needed; documented for traceability.
+
+### Tests
+
+Smoke assertions extended for the 6 new tools (registration + confirm-gating on `pages_upload_code_site` / `pages_restart` / destructive `pages_migrate_datamodel`).
+
+[1.3.0]: https://github.com/Emin-bit/power-platform-mcp/releases/tag/v1.3.0
+
 ## [1.2.0] — 2026-05-14 (Phase D + Phase E + Phase F)
 
 Three phases shipped together. Tool count: 105 → 112 (+6 local tools, +3 Web API tools, +1 token helper, +1 self-review). No breaking changes; all hardening is additive.
